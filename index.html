@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Lecture Planner</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f13; color: #f0ece4; font-family: Georgia, serif; min-height: 100vh; padding-bottom: 60px; }
+  button { cursor: pointer; font-family: Georgia, serif; }
+  input { font-family: Georgia, serif; outline: none; }
+  ::-webkit-scrollbar { height: 4px; } ::-webkit-scrollbar-track { background: #1a1a24; } ::-webkit-scrollbar-thumb { background: #3a3a4a; border-radius: 99px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ─── DATA ───────────────────────────────────────────────────────────────────
+const DEFAULT_DATA = {
+  Maths:     { color:"#e74c3c", emoji:"📐", chapters:[{name:"Binomial Theorem",lectures:7},{name:"Sequence & Series",lectures:9}] },
+  Physics:   { color:"#2980b9", emoji:"⚡", chapters:[{name:"W.E.P",lectures:4},{name:"Rotational Motion",lectures:6},{name:"Gravitation",lectures:4}] },
+  Chemistry: { color:"#27ae60", emoji:"🧪", chapters:[{name:"Chemical Bonding & Molecular Structure",lectures:12},{name:"Chemical Thermodynamics",lectures:8}] },
+  Biology:   { color:"#8e44ad", emoji:"🌿", chapters:[{name:"Biomolecules",lectures:5},{name:"Animal Kingdom",lectures:4}] },
+  English:   { color:"#d35400", emoji:"📖", chapters:[{name:"Ch 05",lectures:2},{name:"Ch 06",lectures:1},{name:"Ch 07",lectures:3},{name:"Ch 08",lectures:1},{name:"Ch 09",lectures:3},{name:"Ch 10",lectures:4},{name:"Ch 11",lectures:1}] },
+};
+const EMOJIS = ["📐","⚡","🧪","🌿","📖","🎯","🔬","📝","🎨","💡"];
+const COLORS = ["#e74c3c","#2980b9","#27ae60","#8e44ad","#d35400","#f39c12","#16a085","#c0392b","#2471a3"];
+
+// ─── STATE ──────────────────────────────────────────────────────────────────
+let state = {
+  subjects: JSON.parse(JSON.stringify(DEFAULT_DATA)),
+  checked: {},
+  activeTab: "Overview",
+  editMode: false,
+  modal: null, // 'guide' | 'addChapter' | 'addLectures' | 'addSubject'
+  modalData: {},
+};
+
+function loadFromStorage() {
+  try {
+    const sd = localStorage.getItem("lp_subjects");
+    const ch = localStorage.getItem("lp_checked");
+    if (sd) state.subjects = JSON.parse(sd);
+    if (ch) state.checked = JSON.parse(ch);
+  } catch(e) {}
+}
+
+function saveToStorage() {
+  try {
+    localStorage.setItem("lp_subjects", JSON.stringify(state.subjects));
+    localStorage.setItem("lp_checked", JSON.stringify(state.checked));
+  } catch(e) {}
+}
+
+// ─── HELPERS ────────────────────────────────────────────────────────────────
+function buildLectures(chapters) {
+  const out = []; let g = 1;
+  for (const ch of chapters)
+    for (let i = 1; i <= ch.lectures; i++)
+      out.push({ chapter: ch.name, num: i, idx: g++ });
+  return out;
+}
+function getDone(s)  { return Object.values(state.checked[s]||{}).filter(Boolean).length; }
+function getTotal(s) { return buildLectures(state.subjects[s].chapters).length; }
+function pct(done, total) { return total ? Math.round(done/total*100) : 0; }
+function subjects()  { return Object.keys(state.subjects); }
+
+// ─── RENDER ─────────────────────────────────────────────────────────────────
+function render() {
+  document.getElementById("app").innerHTML = buildApp();
+  attachEvents();
+}
+
+function progressBar(p, color, height=5) {
+  return `<div style="height:${height}px;background:#2a2a38;border-radius:99px;overflow:hidden;">
+    <div style="height:100%;width:${p}%;background:${color};border-radius:99px;transition:width .4s;"></div></div>`;
+}
+
+function buildApp() {
+  const totalAll = subjects().reduce((a,s)=>a+getTotal(s),0);
+  const doneAll  = subjects().reduce((a,s)=>a+getDone(s),0);
+  const overall  = pct(doneAll, totalAll);
+
+  const tabs = ["Overview", ...subjects()];
+
+  return `
+  <!-- HEADER -->
+  <div style="background:#1a1a24;border-bottom:1px solid #2a2a38;padding:24px 16px 0;">
+    <div style="max-width:720px;margin:0 auto;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+        <div>
+          <p style="color:#888;font-size:10px;letter-spacing:4px;text-transform:uppercase;margin-bottom:4px;">From 1 June</p>
+          <h1 style="font-size:24px;font-style:italic;background:linear-gradient(90deg,#f0ece4,#aaa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Lecture Planner</h1>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:4px;flex-shrink:0;">
+          <button id="btn-guide" style="background:#1a1a24;color:#f0ece4;border:1px solid #3a3a4a;border-radius:8px;padding:6px 10px;font-size:11px;">📖 Guide</button>
+          <button id="btn-edit"  style="background:${state.editMode?'#27ae6022':'#1a1a24'};color:${state.editMode?'#27ae60':'#f0ece4'};border:1px solid ${state.editMode?'#27ae60':'#3a3a4a'};border-radius:8px;padding:6px 10px;font-size:11px;">${state.editMode?'✓ Done':'✏️ Edit'}</button>
+        </div>
+      </div>
+      <!-- Overall progress -->
+      <div style="margin:16px 0 0;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#888;margin-bottom:5px;">
+          <span>Overall Progress</span><span style="color:#f0ece4;">${doneAll}/${totalAll} · ${overall}%</span>
+        </div>
+        ${progressBar(`${overall}`, 'linear-gradient(90deg,#e74c3c,#8e44ad)', 5)}
+      </div>
+      <!-- Tabs -->
+      <div style="display:flex;gap:2px;margin-top:20px;overflow-x:auto;">
+        ${tabs.map(t=>`<button class="tab-btn" data-tab="${t}" style="background:${state.activeTab===t?'#f0ece4':'transparent'};color:${state.activeTab===t?'#0f0f13':'#888'};border:none;border-radius:8px 8px 0 0;padding:9px 13px;font-size:12px;font-family:Georgia,serif;white-space:nowrap;font-weight:${state.activeTab===t?700:400};">${t==='Overview'?'Overview':`${state.subjects[t].emoji} ${t}`}</button>`).join('')}
+        ${state.editMode?`<button id="btn-add-subject" style="background:transparent;color:#27ae60;border:none;border-radius:8px 8px 0 0;padding:9px 13px;font-size:12px;font-family:Georgia,serif;white-space:nowrap;">+ Subject</button>`:''}
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div style="max-width:720px;margin:0 auto;padding:24px 16px 0;">
+    ${state.activeTab === 'Overview' ? buildOverview() : buildSubject(state.activeTab)}
+  </div>
+
+  ${buildModal()}
+  `;
+}
+
+function buildOverview() {
+  return subjects().map(s => {
+    const done = getDone(s), total = getTotal(s), p = pct(done,total);
+    const info = state.subjects[s];
+    return `<div class="subject-card" data-subject="${s}" style="background:#1a1a24;border:1px solid #2a2a38;border-radius:14px;padding:16px 18px;cursor:pointer;margin-bottom:12px;transition:border-color .2s;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">${info.emoji}</span><span style="font-weight:700;font-size:16px;">${s}</span></div>
+        <span style="font-size:12px;color:#888;">${done}/${total} · ${p}%</span>
+      </div>
+      ${progressBar(p, info.color, 4)}
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+        ${info.chapters.map(ch=>`<span style="font-size:10px;color:#666;background:#0f0f13;padding:2px 8px;border-radius:99px;border:1px solid #2a2a38;">${ch.name} (${ch.lectures})</span>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function buildSubject(s) {
+  const info = state.subjects[s];
+  const lectures = buildLectures(info.chapters);
+  const done = getDone(s), total = lectures.length, p = pct(done,total);
+
+  const groups = {};
+  for (const l of lectures) { if(!groups[l.chapter]) groups[l.chapter]=[]; groups[l.chapter].push(l); }
+
+  return `
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:28px;">${info.emoji}</span>
+      <div><h2 style="font-size:22px;">${s}</h2><p style="color:#888;font-size:12px;">${done} of ${total} done · ${p}%</p></div>
+    </div>
+    ${state.editMode?`<button id="btn-add-chapter" style="background:#1a1a24;color:#27ae60;border:1px solid #27ae6055;border-radius:8px;padding:6px 12px;font-size:11px;">+ Chapter</button>`:''}
+  </div>
+  ${progressBar(p, info.color, 5)}
+  <div style="margin-top:24px;">
+  ${Object.entries(groups).map(([chapter, lecs])=>`
+    <div style="margin-bottom:22px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <p style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:${info.color};">${chapter}</p>
+        ${state.editMode?`<div style="display:flex;gap:6px;">
+          <button class="btn-add-lec" data-chapter="${chapter}" style="background:transparent;color:${info.color};border:1px solid ${info.color}55;border-radius:6px;padding:3px 9px;font-size:10px;">+ Lectures</button>
+          <button class="btn-del-chapter" data-chapter="${chapter}" style="background:transparent;color:#e74c3c;border:1px solid #e74c3c55;border-radius:6px;padding:3px 9px;font-size:10px;">🗑 Remove</button>
+        </div>`:''}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        ${lecs.map(l=>{
+          const done2 = !!(state.checked[s]||{})[l.idx];
+          return `<button class="lec-btn" data-subject="${s}" data-idx="${l.idx}" style="width:50px;height:50px;border-radius:10px;border:2px solid ${done2?info.color:'#2a2a38'};background:${done2?info.color+'22':'#1a1a24'};color:${done2?info.color:'#555'};font-size:14px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;transition:all .2s;">
+            <span>${l.num}</span>${done2?`<span style="font-size:8px;">✓</span>`:''}
+          </button>`;
+        }).join('')}
+      </div>
+    </div>
+  `).join('')}
+  ${info.chapters.length===0?`<p style="color:#555;font-size:13px;text-align:center;margin-top:40px;">No chapters yet. Tap Edit → + Chapter to add one.</p>`:''}
+  </div>`;
+}
+
+function buildModal() {
+  if (!state.modal) return '';
+  const overlay = `position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;`;
+  const box = `background:#1a1a24;border:1px solid #2a2a38;border-radius:16px;padding:24px;max-width:380px;width:100%;`;
+  const inp = `background:#0f0f13;border:1px solid #3a3a4a;border-radius:8px;color:#f0ece4;padding:8px 12px;font-size:13px;font-family:Georgia,serif;width:100%;margin-bottom:10px;`;
+  const btnCancel = `background:#1a1a24;color:#888;border:1px solid #3a3a4a;border-radius:8px;padding:8px 0;font-size:12px;flex:1;`;
+  const btnOk = `background:#27ae6022;color:#27ae60;border:1px solid #27ae60;border-radius:8px;padding:8px 0;font-size:12px;flex:1;`;
+
+  if (state.modal === 'guide') return `<div style="${overlay}" id="modal-overlay">
+    <div style="${box}max-height:85vh;overflow-y:auto;">
+      <h2 style="font-size:18px;font-style:italic;margin-bottom:20px;">📖 How to Use</h2>
+      ${[
+        ["✅ Check off lectures","Tap any numbered tile to mark it done. Tap again to unmark."],
+        ["💾 Progress is saved","Saved in your browser automatically. Reopen anytime — your progress stays."],
+        ["✏️ Edit Mode","Add lectures, chapters, or new subjects anytime using the Edit button."],
+        ["📱 Save as App (iPhone)","Open in Safari → tap Share → 'Add to Home Screen'. It'll appear like a real app!"],
+        ["🔖 Daily Workflow","Reminder fires → open tracker → check off lecture. That's it!"],
+        ["📊 Overview tab","See big-picture progress across all subjects at a glance."],
+      ].map(([t,d])=>`<div style="margin-bottom:14px;"><p style="font-weight:700;font-size:13px;margin-bottom:3px;">${t}</p><p style="color:#888;font-size:12px;line-height:1.6;">${d}</p></div>`).join('')}
+      <button id="modal-close" style="background:#1a1a24;color:#f0ece4;border:1px solid #3a3a4a;border-radius:8px;padding:10px 0;width:100%;font-size:13px;margin-top:4px;">Got it!</button>
+    </div></div>`;
+
+  if (state.modal === 'addChapter') return `<div style="${overlay}" id="modal-overlay">
+    <div style="${box}">
+      <h3 style="font-size:16px;margin-bottom:16px;">Add Chapter to ${state.activeTab}</h3>
+      <input id="inp-chname" style="${inp}" placeholder="Chapter name" value="${state.modalData.chname||''}"/>
+      <label style="font-size:11px;color:#888;display:block;margin-bottom:4px;">Number of lectures</label>
+      <input id="inp-chlec" style="${inp}" type="number" min="1" value="${state.modalData.chlec||1}"/>
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        <button id="modal-cancel" style="${btnCancel}">Cancel</button>
+        <button id="modal-ok" style="${btnOk}">Add Chapter</button>
+      </div>
+    </div></div>`;
+
+  if (state.modal === 'addLectures') return `<div style="${overlay}" id="modal-overlay">
+    <div style="${box}">
+      <h3 style="font-size:16px;margin-bottom:6px;">Add Lectures</h3>
+      <p style="color:#888;font-size:12px;margin-bottom:14px;">Adding to: ${state.modalData.chapter}</p>
+      <input id="inp-leccount" style="${inp}" type="number" min="1" value="${state.modalData.count||1}"/>
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        <button id="modal-cancel" style="${btnCancel}">Cancel</button>
+        <button id="modal-ok" style="${btnOk}">Add</button>
+      </div>
+    </div></div>`;
+
+  if (state.modal === 'deleteChapter') return `<div style="${overlay}" id="modal-overlay">
+    <div style="${box}">
+      <h3 style="font-size:16px;margin-bottom:8px;">🗑 Remove Chapter</h3>
+      <p style="color:#888;font-size:13px;margin-bottom:6px;">Are you sure you want to remove:</p>
+      <p style="color:#e74c3c;font-size:14px;font-weight:700;margin-bottom:6px;">"${state.modalData.chapter}"</p>
+      <p style="color:#666;font-size:11px;margin-bottom:18px;">This will delete all ${state.modalData.lectureCount} lecture(s) and their progress.</p>
+      <div style="display:flex;gap:8px;">
+        <button id="modal-cancel" style="${btnCancel}">Cancel</button>
+        <button id="modal-ok" style="background:#e74c3c22;color:#e74c3c;border:1px solid #e74c3c;border-radius:8px;padding:8px 0;font-size:12px;flex:1;">Yes, Remove</button>
+      </div>
+    </div></div>`;
+
+  if (state.modal === 'addSubject') return `<div style="${overlay}" id="modal-overlay">
+    <div style="${box}">
+      <h3 style="font-size:16px;margin-bottom:16px;">Add New Subject</h3>
+      <input id="inp-subname" style="${inp}" placeholder="Subject name (e.g. Hindi)" value="${state.modalData.subname||''}"/>
+      <label style="font-size:11px;color:#888;display:block;margin-bottom:8px;">Pick an emoji</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
+        ${EMOJIS.map(e=>`<button class="emoji-btn" data-emoji="${e}" style="font-size:20px;background:${(state.modalData.emoji||'🎯')===e?'#2a2a38':'transparent'};border:2px solid ${(state.modalData.emoji||'🎯')===e?'#27ae60':'#2a2a38'};border-radius:8px;padding:4px 8px;">${e}</button>`).join('')}
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button id="modal-cancel" style="${btnCancel}">Cancel</button>
+        <button id="modal-ok" style="${btnOk}">Add Subject</button>
+      </div>
+    </div></div>`;
+
+  return '';
+}
+
+// ─── EVENTS ─────────────────────────────────────────────────────────────────
+function attachEvents() {
+  // Tabs
+  document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>{
+    state.activeTab = b.dataset.tab; render();
+  }));
+  // Subject cards in overview
+  document.querySelectorAll('.subject-card').forEach(c=>c.addEventListener('click',()=>{
+    state.activeTab = c.dataset.subject; render();
+  }));
+  // Lecture toggle
+  document.querySelectorAll('.lec-btn').forEach(b=>b.addEventListener('click',()=>{
+    const {subject,idx} = b.dataset;
+    if (!state.checked[subject]) state.checked[subject]={};
+    state.checked[subject][idx] = !state.checked[subject][idx];
+    saveToStorage(); render();
+  }));
+  // Edit toggle
+  const be = document.getElementById('btn-edit');
+  if (be) be.addEventListener('click',()=>{ state.editMode=!state.editMode; render(); });
+  // Guide
+  const bg = document.getElementById('btn-guide');
+  if (bg) bg.addEventListener('click',()=>{ state.modal='guide'; render(); });
+  // Add chapter
+  const bac = document.getElementById('btn-add-chapter');
+  if (bac) bac.addEventListener('click',()=>{ state.modal='addChapter'; state.modalData={}; render(); });
+  // Add subject
+  const bas = document.getElementById('btn-add-subject');
+  if (bas) bas.addEventListener('click',()=>{ state.modal='addSubject'; state.modalData={emoji:'🎯'}; render(); });
+  // Delete chapter buttons
+  document.querySelectorAll('.btn-del-chapter').forEach(b=>b.addEventListener('click',()=>{
+    const ch = b.dataset.chapter;
+    const lectureCount = (state.subjects[state.activeTab].chapters.find(c=>c.name===ch)||{}).lectures||0;
+    state.modal='deleteChapter'; state.modalData={chapter:ch, lectureCount}; render();
+  }));
+  // Add lectures buttons
+  document.querySelectorAll('.btn-add-lec').forEach(b=>b.addEventListener('click',()=>{
+    state.modal='addLectures'; state.modalData={chapter:b.dataset.chapter, count:1}; render();
+  }));
+  // Emoji picker
+  document.querySelectorAll('.emoji-btn').forEach(b=>b.addEventListener('click',()=>{
+    state.modalData.emoji = b.dataset.emoji; render();
+    // restore input value
+    const inp = document.getElementById('inp-subname');
+    if(inp) inp.value = state.modalData.subname||'';
+  }));
+  // Modal close / cancel
+  const mc = document.getElementById('modal-close');
+  if (mc) mc.addEventListener('click',()=>{ state.modal=null; render(); });
+  const mcan = document.getElementById('modal-cancel');
+  if (mcan) mcan.addEventListener('click',()=>{ state.modal=null; render(); });
+  // Modal OK
+  const mok = document.getElementById('modal-ok');
+  if (mok) mok.addEventListener('click',()=>{
+    if (state.modal==='addChapter') {
+      const name = document.getElementById('inp-chname').value.trim();
+      const lec  = parseInt(document.getElementById('inp-chlec').value)||1;
+      if (name) { state.subjects[state.activeTab].chapters.push({name,lectures:lec}); saveToStorage(); }
+      state.modal=null; render();
+    } else if (state.modal==='addLectures') {
+      const count = parseInt(document.getElementById('inp-leccount').value)||1;
+      const s = state.activeTab, ch = state.modalData.chapter;
+      state.subjects[s].chapters = state.subjects[s].chapters.map(c=>c.name===ch?{...c,lectures:c.lectures+count}:c);
+      saveToStorage(); state.modal=null; render();
+    } else if (state.modal==='deleteChapter') {
+      const s = state.activeTab, ch = state.modalData.chapter;
+      // Remove checked entries for this chapter's lectures
+      const lectures = state.subjects[s].chapters.find(c=>c.name===ch);
+      state.subjects[s].chapters = state.subjects[s].chapters.filter(c=>c.name!==ch);
+      // Rebuild checked to remove deleted lecture indices
+      if (state.checked[s]) {
+        const remaining = {};
+        let g = 1;
+        for (const c of state.subjects[s].chapters)
+          for (let i = 1; i <= c.lectures; i++) remaining[g++] = true;
+        // Just clear all checked for subject and let user re-check remaining
+        state.checked[s] = {};
+      }
+      saveToStorage(); state.modal=null; render();
+    } else if (state.modal==='addSubject') {
+      const name = document.getElementById('inp-subname').value.trim();
+      const emoji = state.modalData.emoji||'🎯';
+      if (name && !state.subjects[name]) {
+        const usedColors = Object.values(state.subjects).map(s=>s.color);
+        const color = COLORS.find(c=>!usedColors.includes(c))||COLORS[0];
+        state.subjects[name]={color,emoji,chapters:[]};
+        saveToStorage();
+      }
+      state.modal=null; render();
+    }
+  });
+  // Keep input values while typing in modals
+  ['inp-chname','inp-chlec','inp-leccount','inp-subname'].forEach(id=>{
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', e => {
+      if (id==='inp-chname') state.modalData.chname=e.target.value;
+      if (id==='inp-chlec')  state.modalData.chlec=e.target.value;
+      if (id==='inp-leccount') state.modalData.count=e.target.value;
+      if (id==='inp-subname') state.modalData.subname=e.target.value;
+    });
+  });
+}
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
+loadFromStorage();
+render();
+</script>
+</body>
+</html>
